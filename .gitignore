@@ -1,0 +1,23 @@
+# OS / Explorer
+.DS_Store
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs / temp
+*.log
+*.tmp
+*.temp
+*.bak
+
+# Dependencies / build output
+node_modules/
+dist/
+build/
