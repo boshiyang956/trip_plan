@@ -131,9 +131,13 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--teal);bo
 .arrange-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:8px}
 .arrange-note{width:100%;min-height:44px;resize:vertical}
 .arrange-actions{display:flex;justify-content:flex-end;gap:8px}
-.map-head-actions{display:flex;align-items:center;gap:10px}
+.map-head-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px 10px}
 .map-frame{position:relative;border:1px solid var(--line-strong);border-radius:8px;overflow:hidden;background:#eef2ef}
 .map-svg{display:block;width:100%;height:auto;touch-action:none;cursor:crosshair;user-select:none}
+.map-svg.panning{cursor:grabbing}
+.map-zoom{position:absolute;right:8px;top:8px;z-index:2;display:flex;flex-direction:column;gap:6px}
+.map-zoom .icon-btn{background:rgba(255,255,255,.96);box-shadow:0 1px 3px rgba(24,48,38,.16)}
+.map-zoom .icon-btn:hover{border-color:var(--teal);color:var(--teal)}
 .map-svg .map-pin-g{cursor:grab;outline:none}
 .map-svg .map-pin-g:active{cursor:grabbing}
 .pin-halo{transition:opacity .15s}
@@ -266,6 +270,8 @@ const PACK_TEMPLATE=[
 ];
 const ICON_PATHS={
   plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',
+  minus:'<path d="M5 12h14"/>',
+  maximize:'<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>',
   trash:'<path d="M3 6h18"/><path d="M19 6v14c0 1.1-.9 2-2 2H7c-1.1 0-2-.9-2-2V6"/><path d="M8 6V4c0-1.1.9-2 2-2h4c1.1 0 2 .9 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/>',
   copy:'<rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
   download:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
@@ -396,6 +402,7 @@ function normalizeTrip(t,index){
     budgetLimit: typeof t.budgetLimit==='string'?t.budgetLimit:(typeof t.budgetLimit==='number'&&isFinite(t.budgetLimit)?String(t.budgetLimit):''),
     notes: typeof t.notes==='string'?t.notes:'',
     todos: Array.isArray(t.todos)?t.todos.map(normalizeTodo).filter(Boolean):[],
+    mapImage: typeof t.mapImage==='string'?t.mapImage:'',
     mapPoints: Array.isArray(t.mapPoints)?t.mapPoints.map(normalizeMapPoint).filter(Boolean):[],
     days: Array.isArray(t.days)?t.days.map(normalizeDay).filter(Boolean):[],
     expenses: Array.isArray(t.expenses)?t.expenses.map(normalizeExpense).filter(Boolean):[],
@@ -753,20 +760,37 @@ function mapPointHTML(p,selected){
     +'<text x="'+label.width/2+'" y="16" text-anchor="middle" font-size="12" font-weight="600" fill="'+(selected?'#ffffff':'#33423a')+'">'+escapeHTML(label.text)+'</text>'
     +'</g></g>';
 }
+function mapBackgroundHTML(trip){
+  if(trip.mapImage){
+    return '<image class="map-img-backdrop" href="'+escapeHTML(trip.mapImage)+'" x="0" y="0" width="1000" height="640" preserveAspectRatio="xMidYMid slice"/>';
+  }
+  return mapBackdropHTML();
+}
 function mapHTML(trip){
   const pts=trip.mapPoints||[];
   const selectedId=mapEdit&&mapEdit.id;
   return '<section class="card trip-map"><div class="card-head"><h2>行程地图</h2><div class="map-head-actions">'
     +'<span class="mini-count" id="mapCount">'+pts.length+' 个地点</span>'
+    +'<button class="btn btn-ghost btn-small" data-action="import-map">'+icon('upload')+'<span>导入地图</span></button>'
+    +(trip.mapImage?'<button class="btn btn-ghost btn-small danger-btn" data-action="remove-map">'+icon('trash')+'<span>移除地图</span></button>':'')
     +'<button class="btn btn-small" data-action="add-map-point">'+icon('plus')+'<span>添加地点</span></button>'
     +'</div></div>'
+    +'<input type="file" id="mapImageInput" accept="image/*" hidden>'
     +'<div class="map-frame">'
     +'<svg class="map-svg" id="tripMapSvg" viewBox="0 0 1000 640" role="application" aria-label="行程地图">'
     +'<defs><pattern id="mapGrid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0 H0 V40" fill="none" stroke="#dfe6df" stroke-width="1"/></pattern></defs>'
-    +mapBackdropHTML()
+    +'<g id="mapView">'
+    +mapBackgroundHTML(trip)
     +(pts.length?'':'<g class="map-hint-plus" transform="translate(500,320)"><rect x="-28" y="-28" width="56" height="56" rx="8" fill="#ffffff" stroke="#c9d4ca" stroke-width="1.5"/><path d="M-9 0 H9 M0 -9 V9" stroke="#7f9587" stroke-width="3" stroke-linecap="round"/></g>')
     +'<g class="map-points" id="mapPointsLayer">'+pts.map(function(p){return mapPointHTML(p,p.id===selectedId);}).join('')+'</g>'
-    +'</svg></div>'
+    +'</g>'
+    +'</svg>'
+    +'<div class="map-zoom">'
+    +'<button class="icon-btn" data-action="map-zoom-in" title="放大" aria-label="放大">'+icon('plus')+'</button>'
+    +'<button class="icon-btn" data-action="map-zoom-out" title="缩小" aria-label="缩小">'+icon('minus')+'</button>'
+    +'<button class="icon-btn" data-action="map-zoom-reset" title="复位视图" aria-label="复位视图">'+icon('maximize')+'</button>'
+    +'</div>'
+    +'</div>'
     +'<div class="map-list" id="mapList">'+(pts.length?'<div class="map-list-rows">'+pts.map(function(p){
       const color=MAP_TYPE_COLORS[p.type]||'#64748b';
       return '<div class="map-point-row" data-point-id="'+escapeHTML(p.id)+'">'
@@ -794,8 +818,39 @@ function mapHTML(trip){
 }
 let mapEdit=null;
 let mapDrag=null;
+let mapPan=null;
 let suppressMapClick=false;
+let mapView={scale:1,tx:0,ty:0};
 function clampNum(v,min,max){ return Math.max(min,Math.min(max,v)); }
+function applyMapView(){
+  const g=document.getElementById('mapView');
+  if(g) g.setAttribute('transform','translate('+mapView.tx+','+mapView.ty+') scale('+mapView.scale+')');
+}
+function zoomMapAt(cx,cy,factor){
+  const svg=document.getElementById('tripMapSvg');
+  if(!svg) return;
+  const ns=clampNum(mapView.scale*factor,0.4,6);
+  if(ns===mapView.scale) return;
+  const rect=svg.getBoundingClientRect();
+  const kx=rect.width/1000,ky=rect.height/640;
+  const px=(cx-rect.left)/kx,py=(cy-rect.top)/ky;
+  const x=(px-mapView.tx)/mapView.scale;
+  const y=(py-mapView.ty)/mapView.scale;
+  mapView.scale=ns;
+  mapView.tx=px-x*ns;
+  mapView.ty=py-y*ns;
+  applyMapView();
+}
+function zoomMapAtCenter(factor){
+  const svg=document.getElementById('tripMapSvg');
+  if(!svg) return;
+  const r=svg.getBoundingClientRect();
+  zoomMapAt(r.left+r.width/2,r.top+r.height/2,factor);
+}
+function resetMapView(){
+  mapView={scale:1,tx:0,ty:0};
+  applyMapView();
+}
 function svgPosFromEvent(e){
   const svg=document.getElementById('tripMapSvg');
   if(!svg||!svg.createSVGPoint) return null;
@@ -888,16 +943,32 @@ function onMapClick(e){
 }
 function onMapPointerDown(e){
   const g=e.target.closest('.map-pin-g');
-  if(!g) return;
-  const p=getTrip().mapPoints.find(function(x){return x.id===g.dataset.pointId;});
-  if(!p) return;
-  mapDrag={id:p.id,moved:false,startX:e.clientX,startY:e.clientY};
   const svg=document.getElementById('tripMapSvg');
+  if(!svg) return;
+  if(g){
+    const p=getTrip().mapPoints.find(function(x){return x.id===g.dataset.pointId;});
+    if(!p) return;
+    mapDrag={id:p.id,moved:false,startX:e.clientX,startY:e.clientY};
+  }else{
+    mapPan={startX:e.clientX,startY:e.clientY,tx:mapView.tx,ty:mapView.ty,moved:false};
+  }
   try{ if(svg&&svg.setPointerCapture) svg.setPointerCapture(e.pointerId); }catch(err){}
   e.preventDefault();
-  e.stopPropagation();
 }
 function onMapPointerMove(e){
+  if(mapPan){
+    const dx=e.clientX-mapPan.startX;
+    const dy=e.clientY-mapPan.startY;
+    if(!mapPan.moved&&Math.abs(dx)+Math.abs(dy)>4) mapPan.moved=true;
+    if(mapPan.moved){
+      const svg=document.getElementById('tripMapSvg');
+      if(svg) svg.classList.add('panning');
+      mapView.tx=mapPan.tx+dx;
+      mapView.ty=mapPan.ty+dy;
+      applyMapView();
+    }
+    return;
+  }
   if(!mapDrag) return;
   const svg=document.getElementById('tripMapSvg');
   const g=document.querySelector('.map-pin-g[data-point-id="'+mapDrag.id+'"]');
@@ -919,24 +990,37 @@ function onMapPointerMove(e){
   if(mapEdit&&mapEdit.id===p.id){ mapEdit.x=nx; mapEdit.y=ny; }
 }
 function onMapPointerUp(){
-  if(!mapDrag) return;
-  const drag=mapDrag;
-  mapDrag=null;
-  if(drag.moved){
-    suppressMapClick=true;
-    save();
-  }else{
-    selectMapPoint(drag.id);
+  const svg=document.getElementById('tripMapSvg');
+  if(mapDrag){
+    const drag=mapDrag;
+    mapDrag=null;
+    if(drag.moved){
+      suppressMapClick=true;
+      save();
+    }else{
+      selectMapPoint(drag.id);
+    }
+  }
+  if(mapPan){
+    const pan=mapPan;
+    mapPan=null;
+    if(svg) svg.classList.remove('panning');
+    if(pan.moved) suppressMapClick=true;
   }
 }
 function initMap(){
   const svg=document.getElementById('tripMapSvg');
   if(!svg) return;
+  applyMapView();
   svg.addEventListener('click',onMapClick);
   svg.addEventListener('pointerdown',onMapPointerDown);
   svg.addEventListener('pointermove',onMapPointerMove);
   svg.addEventListener('pointerup',onMapPointerUp);
-  svg.addEventListener('pointercancel',function(){ mapDrag=null; });
+  svg.addEventListener('pointercancel',function(){ mapDrag=null; mapPan=null; svg.classList.remove('panning'); });
+  svg.addEventListener('wheel',function(e){
+    e.preventDefault();
+    zoomMapAt(e.clientX,e.clientY,e.deltaY<0?1.15:1/1.15);
+  },{passive:false});
   svg.addEventListener('keydown',function(e){
     const g=e.target.closest&&e.target.closest('.map-pin-g');
     if(!g) return;
@@ -945,6 +1029,54 @@ function initMap(){
       selectMapPoint(g.dataset.pointId);
     }
   });
+}
+function handleMapImport(input){
+  const file=input.files&&input.files[0];
+  if(!file) return;
+  if(!/^image\//.test(file.type)){
+    alert('请选择图片文件。');
+    input.value='';
+    return;
+  }
+  const reader=new FileReader();
+  reader.onload=function(){
+    const img=new Image();
+    img.onload=function(){
+      const max=1600;
+      let w=img.naturalWidth||1000,h=img.naturalHeight||640;
+      if(w>max||h>max){
+        const k=Math.min(max/w,max/h);
+        w=Math.round(w*k);
+        h=Math.round(h*k);
+      }
+      const canvas=document.createElement('canvas');
+      canvas.width=w;
+      canvas.height=h;
+      const ctx=canvas.getContext('2d');
+      ctx.fillStyle='#ffffff';
+      ctx.fillRect(0,0,w,h);
+      ctx.drawImage(img,0,0,w,h);
+      const trip=getTrip();
+      trip.mapImage=canvas.toDataURL('image/jpeg',0.85);
+      save();
+      renderAll();
+    };
+    img.onerror=function(){
+      alert('图片读取失败，请换一张试试。');
+      input.value='';
+    };
+    img.src=reader.result;
+  };
+  reader.readAsDataURL(file);
+  input.value='';
+}
+function removeMapImage(){
+  const trip=getTrip();
+  if(!trip.mapImage) return;
+  if(!confirm('移除当前地图图片，恢复示意图吗？')) return;
+  trip.mapImage='';
+  save();
+  renderAll();
 }
 function renderAll(){
   mapEdit=null;
@@ -1212,7 +1344,7 @@ function openMap(dayId,itemId){
 }
 function addTrip(){
   const t=today();
-  const trip={id:uid(),name:'新行程',destination:'',startDate:t,endDate:addDays(t,2),budgetLimit:'',notes:'',todos:[],mapPoints:[],days:[],expenses:[],packing:[]};
+  const trip={id:uid(),name:'新行程',destination:'',startDate:t,endDate:addDays(t,2),budgetLimit:'',notes:'',todos:[],mapImage:'',mapPoints:[],days:[],expenses:[],packing:[]};
   seedPackTemplate(trip);
   state.trips.push(trip);
   state.activeTripId=trip.id;
@@ -1348,6 +1480,10 @@ document.addEventListener('change',function(e){
     handleImport(el);
     return;
   }
+  if(el.id==='mapImageInput'){
+    handleMapImport(el);
+    return;
+  }
   const path=el.dataset&&el.dataset.path;
   if(!path) return;
   if(el.type==='checkbox'){
@@ -1378,6 +1514,11 @@ document.addEventListener('click',function(e){
   else if(action==='confirm-arrange') arrangeTodo(btn.dataset.id);
   else if(action==='cancel-arrange') cancelArrange(btn.dataset.id);
   else if(action==='add-map-point') openMapEditor(null);
+  else if(action==='import-map') document.getElementById('mapImageInput').click();
+  else if(action==='remove-map') removeMapImage();
+  else if(action==='map-zoom-in') zoomMapAtCenter(1.3);
+  else if(action==='map-zoom-out') zoomMapAtCenter(1/1.3);
+  else if(action==='map-zoom-reset') resetMapView();
   else if(action==='save-map-point') saveMapPoint();
   else if(action==='cancel-map-point') closeMapEditor();
   else if(action==='delete-map-point') deleteMapPoint(btn.dataset.id||(mapEdit&&mapEdit.id));
