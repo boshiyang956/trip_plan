@@ -211,9 +211,9 @@ const BUDGET_COLORS={'交通':'#2563eb','住宿':'#0f766e','餐饮':'#e85d4a','�
 const PACK_TEMPLATE=[
   ['证件','护照/签证'],['证件','身份证'],['证件','机票/酒店订单'],
   ['衣物','换洗衣物'],['衣物','外套/保暖衣物'],['衣物','舒适鞋子'],
-  ['电子','手机充电器'],['电子','充电宝'],['电子','转换插头'],
+  ['电子','手机/相机'],['电子','手机充电器'],['电子','充电宝'],['电子','转换插头'],
   ['洗漱','牙刷/牙膏'],['洗漱','洗面奶/护肤品'],['洗漱','毛巾'],
-  ['药品','常用药'],['药品','创可贴'],['药品','晕车药'],
+  ['药品','常用药'],['药品','感冒药/退烧药'],['药品','创可贴'],['药品','晕车药'],
   ['其他','雨伞'],['其他','纸巾/湿巾'],['其他','零食']
 ];
 const ICON_PATHS={
@@ -325,7 +325,8 @@ function normalizeTrip(t,index){
     notes: typeof t.notes==='string'?t.notes:'',
     days: Array.isArray(t.days)?t.days.map(normalizeDay).filter(Boolean):[],
     expenses: Array.isArray(t.expenses)?t.expenses.map(normalizeExpense).filter(Boolean):[],
-    packing: Array.isArray(t.packing)?t.packing.map(normalizePack).filter(Boolean):[]
+    packing: Array.isArray(t.packing)?t.packing.map(normalizePack).filter(Boolean):[],
+    packingSeeded: !!t.packingSeeded
   };
 }
 function sanitizeState(data){
@@ -564,6 +565,7 @@ function colsHTML(trip){
 }
 function renderAll(){
   const trip=getTrip();
+  if(seedPackTemplate(trip)) save();
   const sel=document.getElementById('tripSelect');
   sel.innerHTML=state.trips.map(function(t){
     return '<option value="'+escapeHTML(t.id)+'"'+(t.id===state.activeTripId?' selected':'')+'>'+escapeHTML(t.name||'未命名行程')+'</option>';
@@ -737,6 +739,7 @@ function openMap(dayId,itemId){
 function addTrip(){
   const t=today();
   const trip={id:uid(),name:'新行程',destination:'',startDate:t,endDate:addDays(t,2),budgetLimit:'',notes:'',days:[],expenses:[],packing:[]};
+  seedPackTemplate(trip);
   state.trips.push(trip);
   state.activeTripId=trip.id;
   save();
@@ -799,6 +802,16 @@ function deletePackItem(id){
   trip.packing=trip.packing.filter(function(x){return x.id!==id;});
   save();
   renderAll();
+}
+function seedPackTemplate(trip){
+  if(!trip||trip.packing.length||trip.packingSeeded) return false;
+  trip.packingSeeded=true;
+  PACK_TEMPLATE.forEach(function(row){
+    if(!trip.packing.some(function(p){return p.category===row[0]&&p.name===row[1];})){
+      trip.packing.push({id:uid(),category:row[0],name:row[1],done:false});
+    }
+  });
+  return true;
 }
 function addPackTemplate(){
   const trip=getTrip();
